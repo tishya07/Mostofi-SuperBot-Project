@@ -183,7 +183,9 @@ def noise_floor_adjustment(S, f_band, noise_threshold = 70):
     # mean magnitude where the frequencies are greater than a threshold value
     noise_floor = np.mean(S[f_band > noise_threshold,:])
     # Where the magnitudes are greater than the noise_floor
-    S_threshold = np.where(S >= noise_floor, S, 0)
+    # S_threshold = np.where(S >= noise_floor, S, 0)
+    S_threshold = S - noise_floor
+    S_threshold = np.where(S_threshold >= 0, S_threshold, 0)
 
     return S_threshold
 
