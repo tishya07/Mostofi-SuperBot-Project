@@ -99,9 +99,9 @@ for k in range(n_chunks):
 
 # parameters
 Twin_sec = 0.40          # STFT window length in seconds (Xmodal)
-hop_sec  = 0.02         # STFT hop (shift) in seconds (Xmodal = .004)
+hop_sec  = 0.004         # STFT hop (shift) in seconds (Xmodal = .004)
 f_lo, f_hi = 15.0, 125.0 # frequency band to display (Xmodal)
-npcs_to_average = 16     # how many PC waveforms to include in the average 16 = 98%
+npcs_to_average = 20     # how many PC waveforms to include in the average 16 = 98%
 drop_first_pc = False    # discard 1st PC (recommended in CARM paper)
 normalize_each_pc = True # normalize each PC spectrogram before averaging
 nfft = 1024             # FFT size for STFT (>= nperseg); adjust if you want finer freq grid
@@ -127,7 +127,7 @@ Hpc_all = A0 @ Q_full   # shape (T, N); column i is time series for PC i (h_i)
 
 # choose which PCs to use for spectrogram averaging
 start_idx = 1 if drop_first_pc else 0              # skip PC1 if requested
-stop_idx  = 16            # take next npcs_to_average
+stop_idx  = 20            # take next npcs_to_average
 Hpcs_sel  = Hpc_all[:, start_idx:stop_idx]         # shape (T, npcs_to_average)
 
 # STFT settings
@@ -173,7 +173,8 @@ band = (f_ref >= f_lo) & (f_ref <= f_hi)           # boolean mask for chosen ban
 f_band = f_ref[band]
 S_band = S_avg[band, :]
 
-# # Normalize per time slice after noise thresholding
+
+'''# # Normalize per time slice after noise thresholding
 S_sum = np.sum(S_band, axis = 0)
 S_norm = S_band / (S_sum + 1e-12)
 ## for global normalization
@@ -208,4 +209,49 @@ S_thresh = noise_floor_adjustment(S_norm, f_band)
 plot_spectrogram(S_avg, "Average of the PCA spectrograms")
 plot_spectrogram(S_band, "Spectrogram with frequency band of 15-125 Hz")
 plot_spectrogram(S_norm, "Spectrogram normalized per time stamp")
-plot_spectrogram(S_thresh, "Spectrogram with noise floor threshold (70 Hz) after normalization")
+plot_spectrogram(S_thresh, "Spectrogram with noise floor threshold (70 Hz) after normalization")'''
+
+# Trying to bring out the turn portion of spectrogram by subtracting global noise 
+# noise floor and bounding per-frame gain
+
+# Remove small global baseline to kill very low-level noise
+floor_global = np.percentile(S_band, 10)   # 10th percentile across ALL freq+time
+S_nf = S_band - floor_global
+S_nf = np.maximum(S_nf, 0.0)
+
+# For each time frame estimate a "level" 
+frame_level = np.percentile(S_nf, 95, axis=0)   # 95th percentile of that column
+
+# Reference level = median over nonzero frames
+valid = frame_level > 0
+if np.any(valid):
+    ref_level = np.median(frame_level[valid])
+else:
+    ref_level = 1.0
+
+eps = 1e-12
+gains = ref_level / (frame_level + eps)   
+
+# Clip gains so we don't blow up noise
+gains = np.clip(gains, 0.5, 3.0)         
+
+# Apply gains per column
+S_eq = S_nf * gains[np.newaxis, :]  
+
+# Final global normalization for ploting 
+S_norm = S_eq / (S_eq.max() + 1e-12)
+
+plt.figure(figsize=(9,4.5))
+extent = [t_ref[0], t_ref[-1], f_band[0], f_band[-1]]
+
+plt.imshow(S_norm, aspect='auto', origin='lower',
+           extent=extent, interpolation='nearest')
+plt.colorbar(label='Magnitude ')
+plt.xlabel("Time (s)")
+plt.ylabel("Frequency (Hz)")
+plt.title(f"Averaged STFT of {npcs_to_average} PCA waveforms "
+          f"({'PC2..' if drop_first_pc else 'PC1..'}PC{stop_idx})\n"
+          f"Hann, {Twin_sec:.3f}s window, {hop_sec*1000:.0f} ms hop")
+plt.tight_layout()
+plt.show()
+
