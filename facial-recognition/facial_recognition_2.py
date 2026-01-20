@@ -114,3 +114,5 @@ print("Labels shape: ", labels.shape)  # (batch_size, num_classes)
 print("First image shape: ", images[0].shape)
 print("First label: ", labels[0])
 
+#Todo: add code for training the model and inference
+
