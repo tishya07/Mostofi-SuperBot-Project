@@ -6,6 +6,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras import regularizers
 import numpy as np
 from math import pi
+import matplotlib.pyplot as plt
 
 def create_arcface_model(input_shape=(112, 112, 3), num_classes=2):
 	"""
@@ -86,29 +87,44 @@ def arcface_loss(y_true, y_pred, s=64.0, m=0.5):
 
 
 #define training dataset
-dataset_dir = '/home/facial-recognition/faces_dataset'
+dataset_dir = '/workspace/facial-recognition/faces_dataset'
 
-#make image processor
-datagen = ImageDataGenerator(rescale=1./255, validation_split=0.2)
-
-#load training data and preprocess. each subfolder in dataset_dir will have all of its images loaded and given a label unique to the subdfolder
-train_gen = datagen.flow_from_directory(
-	dataset_dir,  # The main directory containing subfolders
-	target_size=(112, 112),# Resize all images to 112x112 (to match the model input)
-	batch_size=32, # Number of images per batch
-	class_mode='categorical',  # Label the images with one-hot encoding (categorical)
-	subset='training', # Use 80% of data for training
-	shuffle=True   # Shuffle the images for better randomness
+# Data augmentation for TRAINING only 
+train_datagen = ImageDataGenerator(
+	rescale=1./255,
+	validation_split=0.2,
+	rotation_range=10,          # random rotation (-10..+10 degrees)
+	width_shift_range=0.05,     # random horizontal shift (±5%)
+	height_shift_range=0.05,    # random vertical shift (±5%)
+	zoom_range=0.10,            # random zoom in/out (±10%)
+	horizontal_flip=True,       # 50% chance mirror flip
+	brightness_range=(0.8, 1.2) # random brightness
 )
 
-# Load validation data from the same directory (20% of the data)
-valid_gen = datagen.flow_from_directory(
-	dataset_dir,  # Same directory as above
-	target_size=(112, 112),# Resize all images to 112x112
-	batch_size=32, # Number of images per batch
-	class_mode='categorical',  # One-hot encoded labels
-	subset='validation',   # Use 20% of data for validation
-	shuffle=True   # Shuffle the images
+# NO augmentation for validation (only rescale) 
+valid_datagen = ImageDataGenerator(
+	rescale=1./255,
+	validation_split=0.2
+)
+
+# Train generator uses augmented datagen 
+train_gen = train_datagen.flow_from_directory(
+	dataset_dir,
+	target_size=(112, 112),
+	batch_size=8,
+	class_mode='categorical',
+	subset='training',
+	shuffle=True
+)
+
+# Validation generator uses non-augmented datagen
+valid_gen = valid_datagen.flow_from_directory(
+	dataset_dir,
+	target_size=(112, 112),
+	batch_size=8,
+	class_mode='categorical',
+	subset='validation',
+	shuffle=False  # [EDITED] optional: keep validation deterministic
 )
 
 #check images and labels in a batch
@@ -127,12 +143,16 @@ print("First label: ", labels[0])
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), loss=arcface_loss, metrics=['accuracy'])
 #model.compile(optimizer=tf.keras.optimizers.AdamW(learning_rate=1e-4, weight_decay=1e-4), loss=arcface_loss, metrics=['accuracy'])
 
-# Training the model
-history = model.fit(
-	train_gen,
-	epochs=20,
-	validation_data=valid_gen
-)
+# Store training and validation logs
+history = model.fit(train_gen, validation_data=valid_gen, epochs=20)
 
 # Save the model if needed
 model.save('arcface_model.h5')
+
+print("train class_indices:", train_gen.class_indices)
+print("val class_indices:", valid_gen.class_indices)
+
+plt.plot(history.history['accuracy'], label='train')
+plt.plot(history.history['val_accuracy'], label='val')
+plt.legend()
+plt.show()
